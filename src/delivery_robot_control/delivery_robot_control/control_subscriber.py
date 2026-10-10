@@ -6,12 +6,29 @@ from std_msgs.msg import String
 from delivery_robot_control.state_machine import DeliveryStateMachine
 
 
+
 class ControlSubscriber(Node):
 
     def __init__(self):
         super().__init__('control_subscriber')
 
         self.state_machine = DeliveryStateMachine()
+
+        self.stm32_subscription = self.create_subscription(
+                    String,
+                    'stm32_status',
+                    self.stm32_status_callback,
+                    10
+                )
+        
+        self.esp32_subscription = self.create_subscription(
+            String,
+            'esp32_status',
+            self.esp32_status_callback,
+            10
+        )
+        
+        
 
         self.subscription = self.create_subscription(
             String,
@@ -46,12 +63,6 @@ class ControlSubscriber(Node):
             10
         )
 
-        self.esp32_subscription = self.create_subscription(
-            String,
-            'esp32_status',
-            self.esp32_status_callback,
-            10
-        )
 
         self.payload_subscription = self.create_subscription(
             String,
@@ -70,15 +81,6 @@ class ControlSubscriber(Node):
             0.1,
             self.check_stop_timeout
         )
-
-        self.stm32_subscription = self.create_subscription(
-            String,
-            'stm32_status',
-            self.stm32_status_callback,
-            10
-        )
-
-
 
     def status_callback(self, msg):
         status = msg.data
@@ -260,6 +262,7 @@ class ControlSubscriber(Node):
             'Stop commands sent: STOP + LIFT_STOP'
         )
 
+    
     def stm32_status_callback(self, msg):
         if msg.data == 'DRIVE_STOPPED':
             if (
@@ -274,7 +277,7 @@ class ControlSubscriber(Node):
                 self.get_logger().warning(
                     '현재 도착 정지 요청에 해당하지 않는 응답'
                 )
-                
+
         elif msg.data == 'DRIVE_MOVING':
             self.drive_stopped = False
             self.stop_requested = False
@@ -287,7 +290,14 @@ class ControlSubscriber(Node):
             self.get_logger().warning(
                 'STM32 주행 감지: 정지 확인 해제 + LIFT_STOP 전송'
             )
+
+        else:
+            self.get_logger().warning(
+                f'Unknown STM32 status: {msg.data}'
+            )
+
     def esp32_status_callback(self, msg):
+
         messages = {
             'LOCK_DONE': '적재함 잠금 완료',
             'UNLOCK_DONE': '적재함 잠금 해제 완료',
@@ -316,12 +326,16 @@ class ControlSubscriber(Node):
 
 def main(args=None):
     rclpy.init(args=args)
-
     node = ControlSubscriber()
-    rclpy.spin(node)
 
-    node.destroy_node()
-    rclpy.shutdown()
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':
