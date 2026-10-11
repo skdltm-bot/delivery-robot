@@ -24,8 +24,8 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'control_subscriber = delivery_robot_control.control_subscriber:main',
-            'mock_esp32 = delivery_robot_control.mock_esp32:main',
+            'stm32_serial_bridge = delivery_robot_bridge.stm32_serial_bridge:main',       
+		    'esp32_serial_bridge = delivery_robot_bridge.esp32_serial_bridge:main',
         ],
     },
 )

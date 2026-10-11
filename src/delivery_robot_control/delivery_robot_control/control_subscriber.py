@@ -280,9 +280,7 @@ class ControlSubscriber(Node):
 
         elif msg.data == 'DRIVE_MOVING':
             self.drive_stopped = False
-            self.stop_requested = False
-            self.stop_requested_at = None
-
+            
             lift_stop = String()
             lift_stop.data = 'LIFT_STOP'
             self.esp32_command_publisher.publish(lift_stop)
