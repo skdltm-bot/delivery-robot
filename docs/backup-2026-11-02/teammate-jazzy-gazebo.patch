@@ -1,0 +1,137 @@
+diff --git a/src/robot_bringup/launch/robot.launch.py b/src/robot_bringup/launch/robot.launch.py
+index 53f8775..3d99750 100644
+--- a/src/robot_bringup/launch/robot.launch.py
++++ b/src/robot_bringup/launch/robot.launch.py
+@@ -208,6 +208,7 @@ def _build_system(context, wiring):
+             'scan_topic': LaunchConfiguration(
+                 'scan_topic'
+             ).perform(context),
++            'inf_is_clear': sim,
+         },
+     )
+ 
+diff --git a/src/robot_navigation/behavior_trees/nav_to_pose_replan_on_invalid_path.xml b/src/robot_navigation/behavior_trees/nav_to_pose_replan_on_invalid_path.xml
+index 4f78f8a..f135107 100644
+--- a/src/robot_navigation/behavior_trees/nav_to_pose_replan_on_invalid_path.xml
++++ b/src/robot_navigation/behavior_trees/nav_to_pose_replan_on_invalid_path.xml
+@@ -1,79 +1,30 @@
+-<!--
+-  robot_navigation/behavior_trees/nav_to_pose_replan_on_invalid_path.xml
+-
+-  Nav2 Lyrical 기본 트리 navigate_to_pose_w_replanning_and_recovery.xml 을 복사해 두 곳만 바꾼 BT.
+-  (원본: /opt/ros/lyrical/share/nav2_bt_navigator/behavior_trees/)
+-
+-  1) FollowPath 복구 분기
+-     기본 트리는 WouldAControllerRecoveryHelp 가 UNKNOWN(100)/PATIENCE_EXCEEDED(104)/
+-     FAILED_TO_MAKE_PROGRESS(105)/NO_VALID_CONTROL(106) 만 복구 대상으로 보므로,
+-     INVALID_PATH(103, "Resulting plan has 0 poses in it.") 는 재시도 없이 목표 전체가 즉시 실패한다.
+-     103 은 위치 추정 점프(AMCL 재초기화·재수렴)로 경로가 로컬 코스트맵 창 밖으로 나갈 때 생기므로
+-     현재 위치에서 한 번 재계획(ComputePathToPose)한 뒤 FollowPath 를 다시 시도한다.
+-
+-  2) 복구 RoundRobin 에서 BackUp 제거
+-     robot_safety 가 후진을 차단(max_reverse_velocity: 0.0)하는 동안 BackUp 은 로봇이 서 있는 채로
+-     time allowance 를 넘겨 실패하고 복구 횟수만 소모한다. 후방 안전 판단을 넣은 뒤 되살린다.
+ 
+-  되돌리기: navigation.launch.py 에 nav_to_pose_bt_xml:='' 를 주면 Nav2 기본 트리를 쓴다.
++<!--
++  This Behavior Tree replans the global path periodically at 1 Hz and it also has
++  recovery actions specific to planning / control as well as general system issues.
++  This will be continuous if a kinematically valid planner is selected.
+ -->
+-<root BTCPP_format="4" main_tree_to_execute="NavigateToPoseWReplanningAndRecovery">
+-  <BehaviorTree ID="NavigateToPoseWReplanningAndRecovery">
++<root BTCPP_format="4" main_tree_to_execute="MainTree">
++  <BehaviorTree ID="MainTree">
+     <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+       <PipelineSequence name="NavigateWithReplanning">
+-        <ProgressCheckerSelector
+-          selected_progress_checker="{selected_progress_checker}"
+-          default_progress_checker="progress_checker" topic_name="progress_checker_selector"/>
+-        <GoalCheckerSelector
+-          selected_goal_checker="{selected_goal_checker}"
+-          default_goal_checker="general_goal_checker" topic_name="goal_checker_selector"/>
+-        <PathHandlerSelector
+-          selected_path_handler="{selected_path_handler}"
+-          default_path_handler="PathHandler" topic_name="path_handler_selector"/>
+-        <ControllerSelector
+-          selected_controller="{selected_controller}"
+-          default_controller="FollowPath" topic_name="controller_selector"/>
+-        <PlannerSelector
+-          selected_planner="{selected_planner}"
+-          default_planner="GridBased" topic_name="planner_selector"/>
++        <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
++        <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+         <RateController hz="1.0">
+           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+-            <Fallback name="FallbackComputePathToPose">
+-              <ReactiveSequence name="CheckIfNewPathNeeded">
+-                <Inverter>
+-                  <GlobalUpdatedGoal/>
+-                </Inverter>
+-                <IsGoalNearby path="{path}" proximity_threshold="4.0"
+-                  max_robot_pose_search_dist="1.5"/>
+-                <TruncatePathLocal input_path="{path}" output_path="{remaining_path}"
+-                  distance_forward="-1" distance_backward="0.0" />
+-                <ValidatePath path="{remaining_path}"/>
+-              </ReactiveSequence>
+-              <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}"
+-                error_code_id="{compute_path_error_code}" error_msg="{compute_path_error_msg}"/>
+-            </Fallback>
++            <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+             <Sequence>
+               <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+-              <ClearEntireCostmap name="ClearGlobalCostmap-Context"
+-                service_name="global_costmap/clear_entirely_global_costmap"/>
++              <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+             </Sequence>
+           </RecoveryNode>
+         </RateController>
+-        <RecoveryNode number_of_retries="2" name="FollowPath">
+-          <FollowPath path="{path}" controller_id="{selected_controller}"
+-            error_code_id="{follow_path_error_code}" error_msg="{follow_path_error_msg}"
+-            tracking_feedback="{tracking_feedback}"/>
+-          <!-- [변경 1] 복구 대상 코드(100/104/105/106)는 기존대로 로컬 코스트맵만 비우고,
+-               그 밖의 코드(103 INVALID_PATH 등)는 현재 위치에서 즉시 재계획한 뒤 FollowPath 재시도 -->
+-          <Fallback name="FollowPathRecovery">
+-            <Sequence>
+-              <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+-              <ClearEntireCostmap name="ClearLocalCostmap-Context"
+-                service_name="local_costmap/clear_entirely_local_costmap"/>
+-            </Sequence>
+-            <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}"
+-              error_code_id="{compute_path_error_code}" error_msg="{compute_path_error_msg}"/>
+-          </Fallback>
++        <RecoveryNode number_of_retries="1" name="FollowPath">
++          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
++          <Sequence>
++            <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
++            <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
++          </Sequence>
+         </RecoveryNode>
+       </PipelineSequence>
+       <Sequence>
+@@ -85,19 +36,12 @@
+           <GoalUpdated/>
+           <RoundRobin name="RecoveryActions">
+             <Sequence name="ClearingActions">
+-              <ClearEntireCostmap name="ClearLocalCostmap-Subtree"
+-                service_name="local_costmap/clear_entirely_local_costmap"/>
+-              <ClearEntireCostmap name="ClearGlobalCostmap-Subtree"
+-                service_name="global_costmap/clear_entirely_global_costmap"/>
++              <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
++              <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+             </Sequence>
+-            <Spin spin_dist="1.57"
+-              error_code_id="{spin_error_code}" error_msg="{spin_error_msg}"/>
+-            <Wait wait_duration="5.0"
+-              error_code_id="{wait_error_code}" error_msg="{wait_error_msg}"/>
+-            <!-- [변경 2] BackUp 제거: robot_safety 가 후진을 허용하면 아래 줄을 되살린다.
+-            <BackUp backup_dist="0.30" backup_speed="0.15"
+-              error_code_id="{backup_error_code}" error_msg="{backup_error_msg}"/>
+-            -->
++            <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
++            <Wait wait_duration="5.0"/>
++            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
+           </RoundRobin>
+         </ReactiveFallback>
+       </Sequence>

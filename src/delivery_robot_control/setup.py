@@ -34,6 +34,7 @@ setup(
             'control_subscriber = delivery_robot_control.control_subscriber:main',
             'mock_esp32 = delivery_robot_control.mock_esp32:main',
             'mock_stm32 = delivery_robot_control.mock_stm32:main',
+            'nav2_status_bridge = delivery_robot_control.nav2_status_bridge:main',
         ],
     },
 )
